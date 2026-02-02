@@ -1,0 +1,29 @@
+{
+  "name": "farcaster-telegram-bot",
+  "version": "1.0.0",
+  "description": "Bot monitorujący odpowiedzi @clanker na Farcaster i wysyłający powiadomienia na Telegram",
+  "main": "farcaster-telegram-bot.js",
+  "scripts": {
+    "start": "node farcaster-telegram-bot.js",
+    "dev": "nodemon farcaster-telegram-bot.js"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "farcaster",
+    "clanker",
+    "notifications"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0",
+    "axios": "^1.6.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
