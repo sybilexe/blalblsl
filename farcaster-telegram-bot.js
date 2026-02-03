@@ -3,7 +3,13 @@ const axios = require('axios');
 
 // Configuration
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '7932473138:AAGxrP1y3wEMVwDmzqlJIW5IT7_t-vak1so';
-const FARCASTER_USERNAME = process.env.FARCASTER_USERNAME || 'clanker';
+
+// Profiles to monitor with their minimum follower requirements
+const MONITORED_PROFILES = [
+  { username: 'clanker', minFollowers: 9000 },
+  { username: 'bankr', minFollowers: 10000 }
+];
+
 const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL) || 15000; // Check every 15 seconds
 
 // Neynar API key - MUST be set in environment variables
@@ -24,13 +30,13 @@ let chatIds = new Set(); // Store chat IDs of users who started the bot
 // Store the last known cast hash to avoid duplicates
 let processedCasts = new Set();
 
-// Helper function to fetch clanker's user info
-async function getClankerUser() {
+// Helper function to fetch user info by username
+async function getClankerUser(username) {
   try {
     const response = await axios.get(
       `https://api.neynar.com/v2/farcaster/user/by_username`,
       {
-        params: { username: FARCASTER_USERNAME },
+        params: { username: username },
         headers: {
           'accept': 'application/json',
           'x-api-key': NEYNAR_API_KEY
@@ -39,7 +45,7 @@ async function getClankerUser() {
     );
     return response.data.user;
   } catch (error) {
-    console.error('Error fetching clanker user:', error.response?.data || error.message);
+    console.error(`Error fetching ${username} user:`, error.response?.data || error.message);
     return null;
   }
 }
@@ -98,11 +104,11 @@ async function getUserByFid(fid) {
 }
 
 // Format cast for Telegram message
-async function formatCastMessage(cast) {
+async function formatCastMessage(cast, profileUsername, minFollowers) {
   const author = cast.author;
   const parentAuthor = cast.parent_author;
   
-  let message = `🔔 <b>Nowa odpowiedź od @${FARCASTER_USERNAME}</b>\n\n`;
+  let message = `🔔 <b>Nowa odpowiedź od @${profileUsername}</b>\n\n`;
   
   if (parentAuthor) {
     let parentName = parentAuthor.username || parentAuthor.display_name;
@@ -143,119 +149,126 @@ async function formatCastMessage(cast) {
   return message;
 }
 
-// Check for new replies
+// Check for new replies from all monitored profiles
 async function checkForNewReplies() {
   try {
     console.log(`[${new Date().toLocaleTimeString()}] Sprawdzam nowe odpowiedzi...`);
     
-    // Get clanker's user info first
-    const clankerUser = await getClankerUser();
-    if (!clankerUser) {
-      console.log('Nie można pobrać informacji o użytkowniku clanker');
-      return;
-    }
-    
-    const fid = clankerUser.fid;
-    console.log(`FID clanker: ${fid}`);
-    
-    // Get recent casts and filter for replies
-    const replies = await getClankerCasts(fid);
-    console.log(`Znaleziono ${replies.length} odpowiedzi`);
-    
-    // Filter for new replies since last check
-    const newReplies = replies.filter(cast => {
-      const castTime = new Date(cast.timestamp).getTime();
-      const isNew = castTime > lastCheckedTimestamp && !processedCasts.has(cast.hash);
-      return isNew;
-    });
-    
-    console.log(`Nowych odpowiedzi: ${newReplies.length}`);
-    
-    // Filter out replies to excluded users
-    const EXCLUDED_USERS = ['bondings.base.eth', 'bondings'];
-    const filteredReplies = newReplies.filter(reply => {
-      // If no parent author, keep the reply
-      if (!reply.parent_author) return true;
+    // Check each monitored profile
+    for (const profile of MONITORED_PROFILES) {
+      const { username, minFollowers } = profile;
+      console.log(`\n📡 Sprawdzam profil: @${username} (min followers: ${minFollowers})`);
       
-      // Safely get parent username
-      const parentUsername = reply.parent_author.username || reply.parent_author.display_name || '';
-      
-      // Check if excluded (case insensitive)
-      const isExcluded = EXCLUDED_USERS.some(excluded => {
-        if (!excluded || !parentUsername) return false;
-        return parentUsername.toLowerCase().includes(excluded.toLowerCase());
-      });
-      
-      if (isExcluded) {
-        console.log(`⏭️  Pomijam odpowiedź do wykluczzonego użytkownika: ${parentUsername}`);
-      }
-      
-      return !isExcluded;
-    });
-    
-    console.log(`Po filtrowaniu wykluczonych: ${filteredReplies.length} odpowiedzi`);
-    
-    // Filter by minimum follower count (3000+)
-    const MIN_FOLLOWERS = 9000;
-    const finalReplies = [];
-    
-    for (const reply of filteredReplies) {
-      if (!reply.parent_author) {
-        finalReplies.push(reply);
+      // Get user info
+      const user = await getClankerUser(username);
+      if (!user) {
+        console.log(`Nie można pobrać informacji o użytkowniku ${username}`);
         continue;
       }
       
-      let followerCount = reply.parent_author.follower_count;
+      const fid = user.fid;
+      console.log(`FID ${username}: ${fid}`);
       
-      // If follower count not available, fetch user details
-      if (!followerCount && reply.parent_author.fid) {
-        const fullUser = await getUserByFid(reply.parent_author.fid);
-        if (fullUser) {
-          followerCount = fullUser.follower_count;
+      // Get recent casts and filter for replies
+      const replies = await getClankerCasts(fid);
+      console.log(`Znaleziono ${replies.length} odpowiedzi`);
+      
+      // Filter for new replies since last check
+      const newReplies = replies.filter(cast => {
+        const castTime = new Date(cast.timestamp).getTime();
+        const castKey = `${username}:${cast.hash}`;
+        const isNew = castTime > lastCheckedTimestamp && !processedCasts.has(castKey);
+        return isNew;
+      });
+      
+      console.log(`Nowych odpowiedzi: ${newReplies.length}`);
+      
+      // Filter out replies to excluded users
+      const EXCLUDED_USERS = ['bondings.base.eth', 'bondings'];
+      const filteredReplies = newReplies.filter(reply => {
+        // If no parent author, keep the reply
+        if (!reply.parent_author) return true;
+        
+        // Safely get parent username
+        const parentUsername = reply.parent_author.username || reply.parent_author.display_name || '';
+        
+        // Check if excluded (case insensitive)
+        const isExcluded = EXCLUDED_USERS.some(excluded => {
+          if (!excluded || !parentUsername) return false;
+          return parentUsername.toLowerCase().includes(excluded.toLowerCase());
+        });
+        
+        if (isExcluded) {
+          console.log(`⏭️  Pomijam odpowiedź do wykluczzonego użytkownika: ${parentUsername}`);
         }
-      }
+        
+        return !isExcluded;
+      });
       
-      followerCount = Number(followerCount) || 0;
+      console.log(`Po filtrowaniu wykluczonych: ${filteredReplies.length} odpowiedzi`);
       
-      if (followerCount >= MIN_FOLLOWERS) {
-        finalReplies.push(reply);
-      } else {
-        const username = reply.parent_author.username || reply.parent_author.display_name || `fid:${reply.parent_author.fid}`;
-        console.log(`⏭️  Pomijam odpowiedź do @${username} (tylko ${followerCount} followers, min: ${MIN_FOLLOWERS})`);
-      }
-    }
-    
-    console.log(`Po filtrowaniu followersów: ${finalReplies.length} odpowiedzi do wysłania`);
-    
-    // Send notifications for new replies
-    for (const reply of finalReplies) {
-      const message = await formatCastMessage(reply);
+      // Filter by minimum follower count
+      const finalReplies = [];
       
-      // Send to all subscribed chats
-      for (const chatId of chatIds) {
-        try {
-          await bot.sendMessage(chatId, message, { 
-            parse_mode: 'HTML',
-            disable_web_page_preview: false
-          });
-          console.log(`✅ Wysłano powiadomienie do chat ${chatId}`);
-        } catch (error) {
-          console.error(`❌ Błąd wysyłania do ${chatId}:`, error.message);
-          // If user blocked the bot, remove them
-          if (error.response && error.response.statusCode === 403) {
-            chatIds.delete(chatId);
+      for (const reply of filteredReplies) {
+        if (!reply.parent_author) {
+          finalReplies.push(reply);
+          continue;
+        }
+        
+        let followerCount = reply.parent_author.follower_count;
+        
+        // If follower count not available, fetch user details
+        if (!followerCount && reply.parent_author.fid) {
+          const fullUser = await getUserByFid(reply.parent_author.fid);
+          if (fullUser) {
+            followerCount = fullUser.follower_count;
           }
         }
+        
+        followerCount = Number(followerCount) || 0;
+        
+        if (followerCount >= minFollowers) {
+          finalReplies.push(reply);
+        } else {
+          const parentUsername = reply.parent_author.username || reply.parent_author.display_name || `fid:${reply.parent_author.fid}`;
+          console.log(`⏭️  Pomijam odpowiedź do @${parentUsername} (tylko ${followerCount} followers, min: ${minFollowers})`);
+        }
       }
       
-      // Mark as processed
-      processedCasts.add(reply.hash);
-    }
-    
-    // Update last checked timestamp
-    if (replies.length > 0) {
-      const latestTime = Math.max(...replies.map(c => new Date(c.timestamp).getTime()));
-      lastCheckedTimestamp = Math.max(lastCheckedTimestamp, latestTime);
+      console.log(`Po filtrowaniu followersów: ${finalReplies.length} odpowiedzi do wysłania`);
+      
+      // Send notifications for new replies
+      for (const reply of finalReplies) {
+        const message = await formatCastMessage(reply, username, minFollowers);
+        
+        // Send to all subscribed chats
+        for (const chatId of chatIds) {
+          try {
+            await bot.sendMessage(chatId, message, { 
+              parse_mode: 'HTML',
+              disable_web_page_preview: false
+            });
+            console.log(`✅ Wysłano powiadomienie do chat ${chatId}`);
+          } catch (error) {
+            console.error(`❌ Błąd wysyłania do ${chatId}:`, error.message);
+            // If user blocked the bot, remove them
+            if (error.response && error.response.statusCode === 403) {
+              chatIds.delete(chatId);
+            }
+          }
+        }
+        
+        // Mark as processed with profile-specific key
+        const castKey = `${username}:${reply.hash}`;
+        processedCasts.add(castKey);
+      }
+      
+      // Update last checked timestamp
+      if (replies.length > 0) {
+        const latestTime = Math.max(...replies.map(c => new Date(c.timestamp).getTime()));
+        lastCheckedTimestamp = Math.max(lastCheckedTimestamp, latestTime);
+      }
     }
     
   } catch (error) {
@@ -268,10 +281,15 @@ bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
   chatIds.add(chatId);
   
+  const profilesList = MONITORED_PROFILES.map(p => 
+    `<b>@${p.username}</b> (min ${p.minFollowers.toLocaleString('pl-PL')} followers)`
+  ).join('\n');
+  
   bot.sendMessage(
     chatId,
     `🤖 <b>Witaj w Farcaster Monitor!</b>\n\n` +
-    `✅ Teraz będziesz otrzymywać powiadomienia, gdy <b>@${FARCASTER_USERNAME}</b> odpowie na czyiś post na Farcaster.\n\n` +
+    `✅ Teraz będziesz otrzymywać powiadomienia gdy te profile odpowiedzą na posty:\n\n` +
+    `${profilesList}\n\n` +
     `📊 Dostępne komendy:\n` +
     `/start - Włącz powiadomienia\n` +
     `/stop - Wyłącz powiadomienia\n` +
@@ -300,15 +318,20 @@ bot.onText(/\/status/, async (msg) => {
   const chatId = msg.chat.id;
   const isSubscribed = chatIds.has(chatId);
   
-  const clankerUser = await getClankerUser();
-  
   let statusMessage = `📊 <b>Status Bota</b>\n\n`;
-  statusMessage += `🎯 Monitorowany profil: <b>@${FARCASTER_USERNAME}</b>\n`;
-  if (clankerUser) {
-    statusMessage += `👤 Nazwa: ${clankerUser.display_name}\n`;
-    statusMessage += `🆔 FID: ${clankerUser.fid}\n`;
+  statusMessage += `🎯 Monitorowane profile:\n`;
+  
+  for (const profile of MONITORED_PROFILES) {
+    const user = await getClankerUser(profile.username);
+    statusMessage += `\n📡 <b>@${profile.username}</b>\n`;
+    if (user) {
+      statusMessage += `   👤 ${user.display_name}\n`;
+      statusMessage += `   🆔 FID: ${user.fid}\n`;
+    }
+    statusMessage += `   👥 Min followers: ${profile.minFollowers.toLocaleString('pl-PL')}\n`;
   }
-  statusMessage += `📢 Status powiadomień: ${isSubscribed ? '✅ Włączone' : '❌ Wyłączone'}\n`;
+  
+  statusMessage += `\n📢 Status powiadomień: ${isSubscribed ? '✅ Włączone' : '❌ Wyłączone'}\n`;
   statusMessage += `👥 Aktywnych subskrybentów: ${chatIds.size}\n`;
   statusMessage += `🕐 Częstotliwość sprawdzania: ${CHECK_INTERVAL / 1000}s\n`;
   statusMessage += `📦 Przetworzonych castów: ${processedCasts.size}\n`;
@@ -335,7 +358,10 @@ bot.on('polling_error', (error) => {
 
 // Start monitoring
 console.log('🚀 Bot uruchomiony!');
-console.log(`📡 Monitoruję profil: @${FARCASTER_USERNAME}`);
+console.log('📡 Monitorowane profile:');
+MONITORED_PROFILES.forEach(profile => {
+  console.log(`   - @${profile.username} (min followers: ${profile.minFollowers})`);
+});
 console.log(`⏱️  Sprawdzam co ${CHECK_INTERVAL / 1000} sekund`);
 console.log('---');
 
