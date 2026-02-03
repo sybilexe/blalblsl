@@ -4,7 +4,7 @@ const axios = require('axios');
 // Configuration
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '7932473138:AAGxrP1y3wEMVwDmzqlJIW5IT7_t-vak1so';
 const FARCASTER_USERNAME = process.env.FARCASTER_USERNAME || 'clanker';
-const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL) || 3000; // Check every 3 seconds
+const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL) || 15000; // Check every 15 seconds
 
 // Neynar API key - MUST be set in environment variables
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY || '3ED55263-9C62-4683-B057-3C83FAC26235';
@@ -168,8 +168,27 @@ async function checkForNewReplies() {
     
     console.log(`Nowych odpowiedzi: ${newReplies.length}`);
     
+    // Filter out replies to excluded users
+    const EXCLUDED_USERS = ['bondings.base.eth', 'bondings'];
+    const filteredReplies = newReplies.filter(reply => {
+      if (!reply.parent_author) return true;
+      
+      const parentUsername = reply.parent_author.username || reply.parent_author.display_name || '';
+      const isExcluded = EXCLUDED_USERS.some(excluded => 
+        parentUsername.toLowerCase().includes(excluded.toLowerCase())
+      );
+      
+      if (isExcluded) {
+        console.log(`⏭️  Pomijam odpowiedź do wykluczzonego użytkownika: ${parentUsername}`);
+      }
+      
+      return !isExcluded;
+    });
+    
+    console.log(`Po filtrowaniu: ${filteredReplies.length} odpowiedzi do wysłania`);
+    
     // Send notifications for new replies
-    for (const reply of newReplies) {
+    for (const reply of filteredReplies) {
       const message = await formatCastMessage(reply);
       
       // Send to all subscribed chats
