@@ -2,11 +2,20 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
 // Configuration
-
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '7932473138:AAGxrP1y3wEMVwDmzqlJIW5IT7_t-vak1so';
 const FARCASTER_USERNAME = process.env.FARCASTER_USERNAME || 'clanker';
-const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL) || 60000;
+const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL) || 60000; // Check every 60 seconds (1 minute)
+
+// Neynar API key - MUST be set in environment variables
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY || '3ED55263-9C62-4683-B057-3C83FAC26235';
+
+// Validate API key
+if (!NEYNAR_API_KEY || NEYNAR_API_KEY === 'CEDC8FB7-010A-4249-B9C5-D5E8A5D0D667') {
+  console.error('❌ BŁĄD: Brak poprawnego NEYNAR_API_KEY!');
+  console.error('💡 Ustaw zmienną środowiskową NEYNAR_API_KEY na Railway');
+  console.error('🔑 Zdobądź darmowy klucz na: https://neynar.com');
+}
+
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
 let lastCheckedTimestamp = Date.now();
@@ -24,11 +33,11 @@ async function getClankerUser() {
         params: { username: FARCASTER_USERNAME },
         headers: {
           'accept': 'application/json',
-          'api_key': NEYNAR_API_KEY
+          'x-api-key': NEYNAR_API_KEY
         }
       }
     );
-    return response.data.result.user;
+    return response.data.user;
   } catch (error) {
     console.error('Error fetching clanker user:', error.response?.data || error.message);
     return null;
@@ -46,7 +55,7 @@ async function getClankerReplies(fid) {
         },
         headers: {
           'accept': 'application/json',
-          'api_key': NEYNAR_API_KEY
+          'x-api-key': NEYNAR_API_KEY
         }
       }
     );
