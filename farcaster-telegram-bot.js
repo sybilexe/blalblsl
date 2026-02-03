@@ -196,7 +196,7 @@ async function checkForNewReplies() {
     console.log(`Po filtrowaniu wykluczonych: ${filteredReplies.length} odpowiedzi`);
     
     // Filter by minimum follower count (3000+)
-    const MIN_FOLLOWERS = 3000;
+    const MIN_FOLLOWERS = 9000;
     const finalReplies = [];
     
     for (const reply of filteredReplies) {
