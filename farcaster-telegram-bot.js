@@ -4,7 +4,7 @@ const axios = require('axios');
 // Configuration
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '7932473138:AAGxrP1y3wEMVwDmzqlJIW5IT7_t-vak1so';
 const FARCASTER_USERNAME = process.env.FARCASTER_USERNAME || 'clanker';
-const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL) || 60000; // Check every 60 seconds (1 minute)
+const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL) || 3000; // Check every 3 seconds
 
 // Neynar API key - MUST be set in environment variables
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY || '3ED55263-9C62-4683-B057-3C83FAC26235';
@@ -74,13 +74,16 @@ async function getClankerCasts(fid) {
   }
 }
 
-// Helper function to fetch user by FID
+// Helper function to fetch user by FID with follower count
 async function getUserByFid(fid) {
   try {
     const response = await axios.get(
       `https://api.neynar.com/v2/farcaster/user/bulk`,
       {
-        params: { fids: fid },
+        params: { 
+          fids: fid,
+          viewer_fid: 3 // Optional viewer context
+        },
         headers: {
           'accept': 'application/json',
           'x-api-key': NEYNAR_API_KEY
@@ -103,12 +106,14 @@ async function formatCastMessage(cast) {
   
   if (parentAuthor) {
     let parentName = parentAuthor.username || parentAuthor.display_name;
+    let followerCount = parentAuthor.follower_count || 0;
     
     // If we only have FID, fetch full user details
-    if (!parentName && parentAuthor.fid) {
+    if ((!parentName || followerCount === 0) && parentAuthor.fid) {
       const fullUser = await getUserByFid(parentAuthor.fid);
       if (fullUser) {
-        parentName = fullUser.username || fullUser.display_name;
+        parentName = parentName || fullUser.username || fullUser.display_name;
+        followerCount = fullUser.follower_count || followerCount;
       }
     }
     
@@ -117,7 +122,6 @@ async function formatCastMessage(cast) {
       parentName = `fid:${parentAuthor.fid}`;
     }
     
-    const followerCount = parentAuthor.follower_count || 0;
     message += `💬 Odpowiedź do: <b>@${parentName}</b>\n`;
     message += `👥 Followers: <b>${followerCount.toLocaleString('pl-PL')}</b>\n`;
   }
