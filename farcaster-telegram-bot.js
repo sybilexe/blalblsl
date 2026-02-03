@@ -10,7 +10,7 @@ const MONITORED_PROFILES = [
   { username: 'bankr', minFollowers: 10000 }
 ];
 
-const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL) || 15000; // Check every 15 seconds
+const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL) || 30000; // Check every 30 seconds
 
 // Neynar API key - MUST be set in environment variables
 const NEYNAR_API_KEY = process.env.NEYNAR_API_KEY || '3ED55263-9C62-4683-B057-3C83FAC26235';
@@ -409,10 +409,12 @@ bot.onText(/\/status/, async (msg) => {
 bot.onText(/\/test/, async (msg) => {
   const chatId = msg.chat.id;
   
+  const profilesList = MONITORED_PROFILES.map(p => `@${p.username}`).join(', ');
+  
   bot.sendMessage(
     chatId,
     `🧪 <b>Testowe powiadomienie</b>\n\n` +
-    `To jest przykład powiadomienia, które otrzymasz gdy @${FARCASTER_USERNAME} odpowie na czyiś cast.\n\n` +
+    `To jest przykład powiadomienia, które otrzymasz gdy ${profilesList} odpowiedzą na czyiś cast.\n\n` +
     `Bot działa poprawnie! ✅`,
     { parse_mode: 'HTML' }
   );
