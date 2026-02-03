@@ -169,7 +169,7 @@ async function checkForNewReplies() {
     console.log(`Nowych odpowiedzi: ${newReplies.length}`);
     
     // Filter out replies to excluded users
-    const EXCLUDED_USERS = ['bondings.base.eth', 'bondings'];
+    const EXCLUDED_USERS = ['bondings.base.eth', 'bondings', outflow.eth, arifu.eth, redotpay];
     const filteredReplies = newReplies.filter(reply => {
       if (!reply.parent_author) return true;
       
