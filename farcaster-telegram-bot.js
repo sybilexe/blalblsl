@@ -2,7 +2,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
 // Configuration
-const TELEGRAM_TOKEN = '7932473138:AAGxrP1y3wEMVwDmzqlJIW5IT7_t-vak1so';
+
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '7932473138:AAGxrP1y3wEMVwDmzqlJIW5IT7_t-vak1so';
 const FARCASTER_USERNAME = process.env.FARCASTER_USERNAME || 'clanker';
 const CHECK_INTERVAL = parseInt(process.env.CHECK_INTERVAL) || 60000;
