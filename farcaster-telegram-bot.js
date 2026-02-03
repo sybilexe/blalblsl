@@ -30,6 +30,62 @@ let chatIds = new Set(); // Store chat IDs of users who started the bot
 // Store the last known cast hash to avoid duplicates
 let processedCasts = new Set();
 
+// Cache for user data to avoid repeated API calls
+const userCache = new Map();
+const CACHE_DURATION = 3600000; // 1 hour in milliseconds
+
+// Helper function to get cached user or fetch from API
+async function getCachedUser(username) {
+  const cached = userCache.get(username);
+  
+  // Return cached data if it exists and is fresh
+  if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+    console.log(`✅ Używam cache dla @${username}`);
+    return cached.data;
+  }
+  
+  // Fetch fresh data
+  console.log(`🔄 Pobieram dane dla @${username}`);
+  const userData = await getClankerUser(username);
+  
+  if (userData) {
+    userCache.set(username, {
+      data: userData,
+      timestamp: Date.now()
+    });
+  }
+  
+  return userData;
+}
+
+// Cache for follower counts
+const followerCache = new Map();
+
+// Counter for replies to each user (to avoid spam)
+const replyCounter = new Map();
+const MAX_REPLIES_PER_USER = 7;
+
+async function getCachedUserByFid(fid) {
+  const cached = followerCache.get(fid);
+  
+  if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+    console.log(`✅ Używam cache dla FID:${fid}`);
+    return cached.data;
+  }
+  
+  console.log(`🔄 Pobieram dane dla FID:${fid}`);
+  const userData = await getUserByFid(fid);
+  
+  if (userData) {
+    followerCache.set(fid, {
+      data: userData,
+      timestamp: Date.now()
+    });
+  }
+  
+  return userData;
+}
+
 // Helper function to fetch user info by username
 async function getClankerUser(username) {
   try {
@@ -114,9 +170,9 @@ async function formatCastMessage(cast, profileUsername, minFollowers) {
     let parentName = parentAuthor.username || parentAuthor.display_name;
     let followerCount = parentAuthor.follower_count;
     
-    // If we only have FID, fetch full user details
+    // If we only have FID, fetch full user details (with caching)
     if ((!parentName || !followerCount) && parentAuthor.fid) {
-      const fullUser = await getUserByFid(parentAuthor.fid);
+      const fullUser = await getCachedUserByFid(parentAuthor.fid);
       if (fullUser) {
         parentName = parentName || fullUser.username || fullUser.display_name;
         followerCount = followerCount || fullUser.follower_count;
@@ -159,8 +215,8 @@ async function checkForNewReplies() {
       const { username, minFollowers } = profile;
       console.log(`\n📡 Sprawdzam profil: @${username} (min followers: ${minFollowers})`);
       
-      // Get user info
-      const user = await getClankerUser(username);
+      // Get user info (with caching)
+      const user = await getCachedUser(username);
       if (!user) {
         console.log(`Nie można pobrać informacji o użytkowniku ${username}`);
         continue;
@@ -218,9 +274,9 @@ async function checkForNewReplies() {
         
         let followerCount = reply.parent_author.follower_count;
         
-        // If follower count not available, fetch user details
+        // If follower count not available, fetch user details (with caching)
         if (!followerCount && reply.parent_author.fid) {
-          const fullUser = await getUserByFid(reply.parent_author.fid);
+          const fullUser = await getCachedUserByFid(reply.parent_author.fid);
           if (fullUser) {
             followerCount = fullUser.follower_count;
           }
@@ -229,7 +285,18 @@ async function checkForNewReplies() {
         followerCount = Number(followerCount) || 0;
         
         if (followerCount >= minFollowers) {
-          finalReplies.push(reply);
+          // Check if we've already sent too many notifications for this user
+          const parentUsername = reply.parent_author.username || reply.parent_author.display_name || `fid:${reply.parent_author.fid}`;
+          const replyCount = replyCounter.get(parentUsername) || 0;
+          
+          if (replyCount >= MAX_REPLIES_PER_USER) {
+            console.log(`⏭️  Pomijam odpowiedź do @${parentUsername} (osiągnięto limit ${MAX_REPLIES_PER_USER} powiadomień)`);
+          } else {
+            finalReplies.push(reply);
+            // Increment counter
+            replyCounter.set(parentUsername, replyCount + 1);
+            console.log(`📊 Licznik dla @${parentUsername}: ${replyCount + 1}/${MAX_REPLIES_PER_USER}`);
+          }
         } else {
           const parentUsername = reply.parent_author.username || reply.parent_author.display_name || `fid:${reply.parent_author.fid}`;
           console.log(`⏭️  Pomijam odpowiedź do @${parentUsername} (tylko ${followerCount} followers, min: ${minFollowers})`);
@@ -322,7 +389,7 @@ bot.onText(/\/status/, async (msg) => {
   statusMessage += `🎯 Monitorowane profile:\n`;
   
   for (const profile of MONITORED_PROFILES) {
-    const user = await getClankerUser(profile.username);
+    const user = await getCachedUser(profile.username);
     statusMessage += `\n📡 <b>@${profile.username}</b>\n`;
     if (user) {
       statusMessage += `   👤 ${user.display_name}\n`;
@@ -378,6 +445,12 @@ setInterval(() => {
     processedCasts = new Set(castsArray.slice(-500));
   }
 }, 300000); // Clean up every 5 minutes
+
+// Reset reply counter every 24 hours
+setInterval(() => {
+  console.log('🔄 Resetuję licznik odpowiedzi (24h upłynęło)');
+  replyCounter.clear();
+}, 86400000); // 24 hours
 
 console.log('✅ Bot gotowy do pracy!');
 console.log('💡 Wyślij /start na Telegramie aby zacząć otrzymywać powiadomienia');
