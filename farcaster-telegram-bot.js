@@ -106,14 +106,14 @@ async function formatCastMessage(cast) {
   
   if (parentAuthor) {
     let parentName = parentAuthor.username || parentAuthor.display_name;
-    let followerCount = parentAuthor.follower_count || 0;
+    let followerCount = parentAuthor.follower_count;
     
     // If we only have FID, fetch full user details
-    if ((!parentName || followerCount === 0) && parentAuthor.fid) {
+    if ((!parentName || !followerCount) && parentAuthor.fid) {
       const fullUser = await getUserByFid(parentAuthor.fid);
       if (fullUser) {
         parentName = parentName || fullUser.username || fullUser.display_name;
-        followerCount = fullUser.follower_count || followerCount;
+        followerCount = followerCount || fullUser.follower_count;
       }
     }
     
@@ -121,6 +121,9 @@ async function formatCastMessage(cast) {
     if (!parentName) {
       parentName = `fid:${parentAuthor.fid}`;
     }
+    
+    // Ensure followerCount is always a number
+    followerCount = Number(followerCount) || 0;
     
     message += `💬 Odpowiedź do: <b>@${parentName}</b>\n`;
     message += `👥 Followers: <b>${followerCount.toLocaleString('pl-PL')}</b>\n`;
@@ -169,14 +172,19 @@ async function checkForNewReplies() {
     console.log(`Nowych odpowiedzi: ${newReplies.length}`);
     
     // Filter out replies to excluded users
-    const EXCLUDED_USERS = ['bondings.base.eth', 'bondings', outflow.eth, arifu.eth, redotpay];
+    const EXCLUDED_USERS = ['bondings.base.eth', 'bondings'];
     const filteredReplies = newReplies.filter(reply => {
+      // If no parent author, keep the reply
       if (!reply.parent_author) return true;
       
+      // Safely get parent username
       const parentUsername = reply.parent_author.username || reply.parent_author.display_name || '';
-      const isExcluded = EXCLUDED_USERS.some(excluded => 
-        parentUsername.toLowerCase().includes(excluded.toLowerCase())
-      );
+      
+      // Check if excluded (case insensitive)
+      const isExcluded = EXCLUDED_USERS.some(excluded => {
+        if (!excluded || !parentUsername) return false;
+        return parentUsername.toLowerCase().includes(excluded.toLowerCase());
+      });
       
       if (isExcluded) {
         console.log(`⏭️  Pomijam odpowiedź do wykluczzonego użytkownika: ${parentUsername}`);
@@ -185,10 +193,42 @@ async function checkForNewReplies() {
       return !isExcluded;
     });
     
-    console.log(`Po filtrowaniu: ${filteredReplies.length} odpowiedzi do wysłania`);
+    console.log(`Po filtrowaniu wykluczonych: ${filteredReplies.length} odpowiedzi`);
+    
+    // Filter by minimum follower count (3000+)
+    const MIN_FOLLOWERS = 3000;
+    const finalReplies = [];
+    
+    for (const reply of filteredReplies) {
+      if (!reply.parent_author) {
+        finalReplies.push(reply);
+        continue;
+      }
+      
+      let followerCount = reply.parent_author.follower_count;
+      
+      // If follower count not available, fetch user details
+      if (!followerCount && reply.parent_author.fid) {
+        const fullUser = await getUserByFid(reply.parent_author.fid);
+        if (fullUser) {
+          followerCount = fullUser.follower_count;
+        }
+      }
+      
+      followerCount = Number(followerCount) || 0;
+      
+      if (followerCount >= MIN_FOLLOWERS) {
+        finalReplies.push(reply);
+      } else {
+        const username = reply.parent_author.username || reply.parent_author.display_name || `fid:${reply.parent_author.fid}`;
+        console.log(`⏭️  Pomijam odpowiedź do @${username} (tylko ${followerCount} followers, min: ${MIN_FOLLOWERS})`);
+      }
+    }
+    
+    console.log(`Po filtrowaniu followersów: ${finalReplies.length} odpowiedzi do wysłania`);
     
     // Send notifications for new replies
-    for (const reply of filteredReplies) {
+    for (const reply of finalReplies) {
       const message = await formatCastMessage(reply);
       
       // Send to all subscribed chats
