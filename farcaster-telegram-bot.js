@@ -63,7 +63,7 @@ const followerCache = new Map();
 
 // Counter for replies to each user (to avoid spam)
 const replyCounter = new Map();
-const MAX_REPLIES_PER_USER = 7;
+const MAX_REPLIES_PER_USER = 3;
 
 async function getCachedUserByFid(fid) {
   const cached = followerCache.get(fid);
@@ -193,14 +193,12 @@ async function formatCastMessage(cast, profileUsername, minFollowers) {
   
   message += `📝 <i>${cast.text || '(brak tekstu)'}</i>\n\n`;
   
-  // Add embeds if present
-  if (cast.embeds && cast.embeds.length > 0) {
-    message += `🔗 Załączniki: ${cast.embeds.length}\n`;
-  }
-  
   // Create Warpcast link - use hash for direct link
   const castHash = cast.hash;
-  message += `🔗 <a href="https://warpcast.com/${author.username || author.display_name}/${castHash}">Zobacz na Warpcast</a>`;
+  message += `🔗 <a href="https://warpcast.com/${author.username || author.display_name}/${castHash}">Zobacz na Warpcast</a>\n\n`;
+  
+  // Add Sigma Trading bot link
+  message += `💎 <a href="https://t.me/SigmaTrading3_bot">Sigma</a>`;
   
   return message;
 }
@@ -240,7 +238,7 @@ async function checkForNewReplies() {
       console.log(`Nowych odpowiedzi: ${newReplies.length}`);
       
       // Filter out replies to excluded users
-      const EXCLUDED_USERS = ['bondings.base.eth', 'bondings'];
+      const EXCLUDED_USERS = ['bondings.base.eth', 'bondings', 'joshidead.eth', 'joshidead', 'zoopdrop.eth', 'zoopdrop', 'liadavid'];
       const filteredReplies = newReplies.filter(reply => {
         // If no parent author, keep the reply
         if (!reply.parent_author) return true;
