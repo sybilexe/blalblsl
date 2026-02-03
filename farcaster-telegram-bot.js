@@ -44,14 +44,16 @@ async function getClankerUser() {
   }
 }
 
-// Helper function to fetch clanker's recent casts (including replies)
-async function getClankerReplies(fid) {
+// Helper function to fetch clanker's recent casts (we'll filter replies ourselves)
+async function getClankerCasts(fid) {
   try {
+    // Use the FREE endpoint - get all casts, then filter for replies
     const response = await axios.get(
-      `https://api.neynar.com/v2/farcaster/feed/user/${fid}/replies`,
+      `https://api.neynar.com/v2/farcaster/feed/user/casts`,
       {
         params: {
-          limit: 25 // Get last 25 replies
+          fid: fid,
+          limit: 50 // Get more casts to find replies
         },
         headers: {
           'accept': 'application/json',
@@ -59,9 +61,15 @@ async function getClankerReplies(fid) {
         }
       }
     );
-    return response.data.casts || [];
+    
+    const casts = response.data.casts || [];
+    
+    // Filter only replies (casts that have a parent)
+    const replies = casts.filter(cast => cast.parent_hash || cast.parent_url);
+    
+    return replies;
   } catch (error) {
-    console.error('Error fetching clanker replies:', error.response?.data || error.message);
+    console.error('Error fetching clanker casts:', error.response?.data || error.message);
     return [];
   }
 }
@@ -106,8 +114,8 @@ async function checkForNewReplies() {
     const fid = clankerUser.fid;
     console.log(`FID clanker: ${fid}`);
     
-    // Get recent replies
-    const replies = await getClankerReplies(fid);
+    // Get recent casts and filter for replies
+    const replies = await getClankerCasts(fid);
     console.log(`Znaleziono ${replies.length} odpowiedzi`);
     
     // Filter for new replies since last check
