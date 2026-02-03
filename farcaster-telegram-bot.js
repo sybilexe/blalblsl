@@ -83,7 +83,9 @@ function formatCastMessage(cast) {
   let message = `🔔 <b>Nowa odpowiedź od @${FARCASTER_USERNAME}</b>\n\n`;
   
   if (parentAuthor) {
-    message += `💬 Odpowiedź do: <b>@${parentAuthor.username}</b>\n`;
+    // Use username, display_name, or fid as fallback
+    const parentName = parentAuthor.username || parentAuthor.display_name || `fid:${parentAuthor.fid}`;
+    message += `💬 Odpowiedź do: <b>@${parentName}</b>\n`;
   }
   
   message += `📝 <i>${cast.text || '(brak tekstu)'}</i>\n\n`;
@@ -94,7 +96,10 @@ function formatCastMessage(cast) {
   }
   
   message += `⏰ ${timestamp}\n`;
-  message += `🔗 <a href="https://warpcast.com/${author.username}/${cast.hash.substring(0, 10)}">Zobacz na Warpcast</a>`;
+  
+  // Create Warpcast link - use hash for direct link
+  const castHash = cast.hash;
+  message += `🔗 <a href="https://warpcast.com/${author.username || author.display_name}/${castHash}">Zobacz na Warpcast</a>`;
   
   return message;
 }
