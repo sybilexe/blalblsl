@@ -74,18 +74,52 @@ async function getClankerCasts(fid) {
   }
 }
 
+// Helper function to fetch user by FID
+async function getUserByFid(fid) {
+  try {
+    const response = await axios.get(
+      `https://api.neynar.com/v2/farcaster/user/bulk`,
+      {
+        params: { fids: fid },
+        headers: {
+          'accept': 'application/json',
+          'x-api-key': NEYNAR_API_KEY
+        }
+      }
+    );
+    return response.data.users?.[0] || null;
+  } catch (error) {
+    console.error('Error fetching user by FID:', error.response?.data || error.message);
+    return null;
+  }
+}
+
 // Format cast for Telegram message
-function formatCastMessage(cast) {
+async function formatCastMessage(cast) {
   const author = cast.author;
   const parentAuthor = cast.parent_author;
-  const timestamp = new Date(cast.timestamp).toLocaleString('pl-PL');
   
   let message = `🔔 <b>Nowa odpowiedź od @${FARCASTER_USERNAME}</b>\n\n`;
   
   if (parentAuthor) {
-    // Use username, display_name, or fid as fallback
-    const parentName = parentAuthor.username || parentAuthor.display_name || `fid:${parentAuthor.fid}`;
+    let parentName = parentAuthor.username || parentAuthor.display_name;
+    
+    // If we only have FID, fetch full user details
+    if (!parentName && parentAuthor.fid) {
+      const fullUser = await getUserByFid(parentAuthor.fid);
+      if (fullUser) {
+        parentName = fullUser.username || fullUser.display_name;
+      }
+    }
+    
+    // Final fallback to FID
+    if (!parentName) {
+      parentName = `fid:${parentAuthor.fid}`;
+    }
+    
+    const followerCount = parentAuthor.follower_count || 0;
     message += `💬 Odpowiedź do: <b>@${parentName}</b>\n`;
+    message += `👥 Followers: <b>${followerCount.toLocaleString('pl-PL')}</b>\n`;
   }
   
   message += `📝 <i>${cast.text || '(brak tekstu)'}</i>\n\n`;
@@ -94,8 +128,6 @@ function formatCastMessage(cast) {
   if (cast.embeds && cast.embeds.length > 0) {
     message += `🔗 Załączniki: ${cast.embeds.length}\n`;
   }
-  
-  message += `⏰ ${timestamp}\n`;
   
   // Create Warpcast link - use hash for direct link
   const castHash = cast.hash;
@@ -134,7 +166,7 @@ async function checkForNewReplies() {
     
     // Send notifications for new replies
     for (const reply of newReplies) {
-      const message = formatCastMessage(reply);
+      const message = await formatCastMessage(reply);
       
       // Send to all subscribed chats
       for (const chatId of chatIds) {
