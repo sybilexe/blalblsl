@@ -4,6 +4,9 @@ const axios = require('axios');
 // Configuration
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || '7932473138:AAGxrP1y3wEMVwDmzqlJIW5IT7_t-vak1so';
 
+// Channel ID where notifications will be sent
+const CHANNEL_ID = '-1003832803701';
+
 // Profiles to monitor with their minimum follower requirements
 const MONITORED_PROFILES = [
   { username: 'clanker', minFollowers: 9000 },
@@ -62,8 +65,12 @@ async function getCachedUser(username) {
 const followerCache = new Map();
 
 // Counter for replies to each user (to avoid spam)
-const replyCounter = new Map();
+const replyCounter = new Map(); // Daily counter (resets every 24h)
 const MAX_REPLIES_PER_USER = 3;
+
+// Permanent counter - blocks user forever after 5 replies total
+const permanentReplyCounter = new Map();
+const PERMANENT_BLOCK_LIMIT = 5;
 
 async function getCachedUserByFid(fid) {
   const cached = followerCache.get(fid);
@@ -238,7 +245,17 @@ async function checkForNewReplies() {
       console.log(`Nowych odpowiedzi: ${newReplies.length}`);
       
       // Filter out replies to excluded users
-      const EXCLUDED_USERS = ['bondings.base.eth', 'bondings', 'joshidead.eth', 'joshidead', 'zoopdrop.eth', 'zoopdrop', 'liadavid'];
+      const EXCLUDED_USERS = [
+        'bondings.base.eth', 'bondings',
+        'joshidead.eth', 'joshidead', 'joshisdead.eth', 'joshisdead',
+        'zoopdrop.eth', 'zoopdrop',
+        'liadavid',
+        'darcris.eth', 'darcris',
+        'imthedude',
+        'baseddonnie',
+        'frissonchain.eth', 'frissonchain',
+        'cristianisbased.eth', 'cristianisbased'
+      ];
       const filteredReplies = newReplies.filter(reply => {
         // If no parent author, keep the reply
         if (!reply.parent_author) return true;
@@ -285,15 +302,26 @@ async function checkForNewReplies() {
         if (followerCount >= minFollowers) {
           // Check if we've already sent too many notifications for this user
           const parentUsername = reply.parent_author.username || reply.parent_author.display_name || `fid:${reply.parent_author.fid}`;
+          
+          // Check PERMANENT block first (lifetime limit)
+          const permanentCount = permanentReplyCounter.get(parentUsername) || 0;
+          
+          if (permanentCount >= PERMANENT_BLOCK_LIMIT) {
+            console.log(`🚫 PERMANENTNIE ZABLOKOWANY @${parentUsername} (osiągnięto limit ${PERMANENT_BLOCK_LIMIT} odpowiedzi lifetime)`);
+            continue; // Skip this user permanently
+          }
+          
+          // Check daily counter
           const replyCount = replyCounter.get(parentUsername) || 0;
           
           if (replyCount >= MAX_REPLIES_PER_USER) {
-            console.log(`⏭️  Pomijam odpowiedź do @${parentUsername} (osiągnięto limit ${MAX_REPLIES_PER_USER} powiadomień)`);
+            console.log(`⏭️  Pomijam odpowiedź do @${parentUsername} (osiągnięto dzienny limit ${MAX_REPLIES_PER_USER} powiadomień)`);
           } else {
             finalReplies.push(reply);
-            // Increment counter
+            // Increment both counters
             replyCounter.set(parentUsername, replyCount + 1);
-            console.log(`📊 Licznik dla @${parentUsername}: ${replyCount + 1}/${MAX_REPLIES_PER_USER}`);
+            permanentReplyCounter.set(parentUsername, permanentCount + 1);
+            console.log(`📊 Licznik dla @${parentUsername}: dzienny ${replyCount + 1}/${MAX_REPLIES_PER_USER}, lifetime ${permanentCount + 1}/${PERMANENT_BLOCK_LIMIT}`);
           }
         } else {
           const parentUsername = reply.parent_author.username || reply.parent_author.display_name || `fid:${reply.parent_author.fid}`;
@@ -307,21 +335,15 @@ async function checkForNewReplies() {
       for (const reply of finalReplies) {
         const message = await formatCastMessage(reply, username, minFollowers);
         
-        // Send to all subscribed chats
-        for (const chatId of chatIds) {
-          try {
-            await bot.sendMessage(chatId, message, { 
-              parse_mode: 'HTML',
-              disable_web_page_preview: false
-            });
-            console.log(`✅ Wysłano powiadomienie do chat ${chatId}`);
-          } catch (error) {
-            console.error(`❌ Błąd wysyłania do ${chatId}:`, error.message);
-            // If user blocked the bot, remove them
-            if (error.response && error.response.statusCode === 403) {
-              chatIds.delete(chatId);
-            }
-          }
+        // Send to channel
+        try {
+          await bot.sendMessage(CHANNEL_ID, message, { 
+            parse_mode: 'HTML',
+            disable_web_page_preview: false
+          });
+          console.log(`✅ Wysłano powiadomienie na kanał`);
+        } catch (error) {
+          console.error(`❌ Błąd wysyłania na kanał:`, error.message);
         }
         
         // Mark as processed with profile-specific key
@@ -344,7 +366,6 @@ async function checkForNewReplies() {
 // Bot commands
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-  chatIds.add(chatId);
   
   const profilesList = MONITORED_PROFILES.map(p => 
     `<b>@${p.username}</b> (min ${p.minFollowers.toLocaleString('pl-PL')} followers)`
@@ -352,38 +373,23 @@ bot.onText(/\/start/, (msg) => {
   
   bot.sendMessage(
     chatId,
-    `🤖 <b>Witaj w Farcaster Monitor!</b>\n\n` +
-    `✅ Teraz będziesz otrzymywać powiadomienia gdy te profile odpowiedzą na posty:\n\n` +
+    `🤖 <b>Farcaster Monitor Bot</b>\n\n` +
+    `✅ Bot automatycznie wysyła powiadomienia na kanał gdy te profile odpowiedzą:\n\n` +
     `${profilesList}\n\n` +
     `📊 Dostępne komendy:\n` +
-    `/start - Włącz powiadomienia\n` +
-    `/stop - Wyłącz powiadomienia\n` +
-    `/status - Sprawdź status\n` +
-    `/test - Testowe powiadomienie`,
+    `/status - Sprawdź status bota\n` +
+    `/test - Wyślij test na kanał`,
     { parse_mode: 'HTML' }
   );
   
-  console.log(`✅ Nowy użytkownik: ${chatId}`);
-});
-
-bot.onText(/\/stop/, (msg) => {
-  const chatId = msg.chat.id;
-  chatIds.delete(chatId);
-  
-  bot.sendMessage(
-    chatId,
-    `👋 Powiadomienia zostały wyłączone.\n\nAby włączyć ponownie, wyślij /start`,
-    { parse_mode: 'HTML' }
-  );
-  
-  console.log(`❌ Użytkownik opuścił: ${chatId}`);
+  console.log(`✅ Użytkownik sprawdził status: ${chatId}`);
 });
 
 bot.onText(/\/status/, async (msg) => {
   const chatId = msg.chat.id;
-  const isSubscribed = chatIds.has(chatId);
   
   let statusMessage = `📊 <b>Status Bota</b>\n\n`;
+  statusMessage += `📢 Kanał: <code>${CHANNEL_ID}</code>\n\n`;
   statusMessage += `🎯 Monitorowane profile:\n`;
   
   for (const profile of MONITORED_PROFILES) {
@@ -396,10 +402,9 @@ bot.onText(/\/status/, async (msg) => {
     statusMessage += `   👥 Min followers: ${profile.minFollowers.toLocaleString('pl-PL')}\n`;
   }
   
-  statusMessage += `\n📢 Status powiadomień: ${isSubscribed ? '✅ Włączone' : '❌ Wyłączone'}\n`;
-  statusMessage += `👥 Aktywnych subskrybentów: ${chatIds.size}\n`;
-  statusMessage += `🕐 Częstotliwość sprawdzania: ${CHECK_INTERVAL / 1000}s\n`;
+  statusMessage += `\n🕐 Częstotliwość sprawdzania: ${CHECK_INTERVAL / 1000}s\n`;
   statusMessage += `📦 Przetworzonych castów: ${processedCasts.size}\n`;
+  statusMessage += `🚫 Permanentnie zablokowanych: ${Array.from(permanentReplyCounter.entries()).filter(([_, count]) => count >= PERMANENT_BLOCK_LIMIT).length}\n`;
   
   bot.sendMessage(chatId, statusMessage, { parse_mode: 'HTML' });
 });
@@ -409,13 +414,20 @@ bot.onText(/\/test/, async (msg) => {
   
   const profilesList = MONITORED_PROFILES.map(p => `@${p.username}`).join(', ');
   
-  bot.sendMessage(
-    chatId,
-    `🧪 <b>Testowe powiadomienie</b>\n\n` +
-    `To jest przykład powiadomienia, które otrzymasz gdy ${profilesList} odpowiedzą na czyiś cast.\n\n` +
-    `Bot działa poprawnie! ✅`,
-    { parse_mode: 'HTML' }
-  );
+  // Send test to channel
+  try {
+    await bot.sendMessage(
+      CHANNEL_ID,
+      `🧪 <b>Testowe powiadomienie</b>\n\n` +
+      `To jest przykład powiadomienia, które pojawi się gdy ${profilesList} odpowiedzą na czyiś cast.\n\n` +
+      `Bot działa poprawnie! ✅`,
+      { parse_mode: 'HTML' }
+    );
+    
+    bot.sendMessage(chatId, '✅ Wysłano test na kanał!', { parse_mode: 'HTML' });
+  } catch (error) {
+    bot.sendMessage(chatId, `❌ Błąd: ${error.message}`, { parse_mode: 'HTML' });
+  }
 });
 
 // Error handling
@@ -446,9 +458,10 @@ setInterval(() => {
   }
 }, 300000); // Clean up every 5 minutes
 
-// Reset reply counter every 24 hours
+// Reset DAILY reply counter every 24 hours (permanent counter NEVER resets)
 setInterval(() => {
-  console.log('🔄 Resetuję licznik odpowiedzi (24h upłynęło)');
+  console.log('🔄 Resetuję DZIENNY licznik odpowiedzi (24h upłynęło)');
+  console.log(`📊 Permanentnie zablokowanych użytkowników: ${Array.from(permanentReplyCounter.entries()).filter(([_, count]) => count >= PERMANENT_BLOCK_LIMIT).length}`);
   replyCounter.clear();
 }, 86400000); // 24 hours
 
