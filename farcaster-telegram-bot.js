@@ -27,7 +27,7 @@ if (!NEYNAR_API_KEY || NEYNAR_API_KEY === 'CEDC8FB7-010A-4249-B9C5-D5E8A5D0D667'
 
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
-let lastCheckedTimestamp = Date.now() - (2 * 60 * 60 * 1000); // Start from 2 hours ago
+let lastCheckedTimestamp = Date.now(); // Start from now to avoid duplicates
 let chatIds = new Set(); // Store chat IDs of users who started the bot
 
 // Store the last known cast hash to avoid duplicates
@@ -208,6 +208,25 @@ async function formatCastMessage(cast, profileUsername, minFollowers) {
   message += `💎 <a href="https://t.me/SigmaTrading3_bot">Sigma</a>`;
   
   return message;
+}
+
+// Initial check to populate processed casts (without sending notifications)
+async function initialPopulation() {
+  console.log('🔄 Pierwsza inicjalizacja - pobieram ostatnie casts bez wysyłania...');
+  
+  for (const profile of MONITORED_PROFILES) {
+    const user = await getCachedUser(profile.username);
+    if (user) {
+      const replies = await getClankerCasts(user.fid);
+      replies.forEach(cast => {
+        const castKey = `${profile.username}:${cast.hash}`;
+        processedCasts.add(castKey);
+      });
+      console.log(`✅ Załadowano ${replies.length} castów z @${profile.username}`);
+    }
+  }
+  
+  console.log('✅ Inicjalizacja zakończona - teraz monitoruję tylko nowe odpowiedzi');
 }
 
 // Check for new replies from all monitored profiles
@@ -444,11 +463,15 @@ MONITORED_PROFILES.forEach(profile => {
 console.log(`⏱️  Sprawdzam co ${CHECK_INTERVAL / 1000} sekund`);
 console.log('---');
 
-// Initial check
-checkForNewReplies();
-
-// Set up interval for checking
-setInterval(checkForNewReplies, CHECK_INTERVAL);
+// Run initial population first to avoid sending old notifications
+initialPopulation().then(() => {
+  console.log('🚀 Rozpoczynam monitorowanie...');
+  // Initial check after population
+  checkForNewReplies();
+  
+  // Set up interval for checking
+  setInterval(checkForNewReplies, CHECK_INTERVAL);
+});
 
 // Keep some processed casts in memory (max 1000)
 setInterval(() => {
