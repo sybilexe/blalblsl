@@ -27,7 +27,7 @@ if (!NEYNAR_API_KEY || NEYNAR_API_KEY === 'CEDC8FB7-010A-4249-B9C5-D5E8A5D0D667'
 
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 
-let lastCheckedTimestamp = Date.now();
+let lastCheckedTimestamp = Date.now() - (2 * 60 * 60 * 1000); // Start from 2 hours ago
 let chatIds = new Set(); // Store chat IDs of users who started the bot
 
 // Store the last known cast hash to avoid duplicates
